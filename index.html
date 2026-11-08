@@ -1,0 +1,1246 @@
+
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+  <title>GEO LAB — География</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js"></script>
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">🌍</div>
+      <div>
+        <strong id="brand">GEO LAB</strong>
+        <small>География • 1-курс • BY DARKHAN</small>
+      </div>
+    </div>
+
+    <div class="clocks">
+      <span>⏱ <b id="totalClock">00:00</b> / 80:00</span>
+      <span>⌛ <b id="sectionClock">03:00</b></span>
+      <button class="btn secondary"
+              id="fullscreen">⛶ Толық экран</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <main id="screen" class="screen"></main>
+
+    <aside class="sidebar">
+      <h3 id="sideTitle">GEO LAB</h3>
+      <nav id="nav"></nav>
+      <div class="side-bottom">
+        <div id="sideScores"></div>
+        <b>BY DARKHAN</b>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="bottomnav">
+    <button class="btn secondary"
+            data-action="prev" id="prevBtn">
+      ← Артқа
+    </button>
+    <b id="pageInfo">1 / 16</b>
+    <button class="btn primary"
+            data-action="next" id="nextBtn">
+      Келесі →
+    </button>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+const L = window.LESSON;
+const $ = id => document.getElementById(id);
+
+const STUDENTS = [
+  "Рамазан", "Тұрғанжан", "Нұрай", "Әлқуат",
+  "Шырай", "Гүлсезім", "Маржан", "Мариям",
+  "Жансая", "Азиза", "Ақсезім", "Нұрболсын",
+  "Ақнұр", "Іңкәр", "Асхат", "Аяжан",
+  "Мирас", "Санжар", "Ерасыл", "Нұрасыл",
+  "Расул", "Айнұр", "Дархан", "Айкерім"
+];
+
+const TEAMS = [
+  "🌱 Зерттеушілер",
+  "🌍 Экологтар",
+  "🔬 Сарапшылар"
+];
+
+const TIMES = [
+  3, 4, 4, 4, 4, 4, 4,
+  5, 13, 3, 14, 8, 3, 3, 2, 2
+];
+// Барлығы: 80 минут
+
+const NAV = [
+  ["🏠", "Басты бет"],
+  ["📗", "Түсіндіру 1"],
+  ["🌍", "Түсіндіру 2"],
+  ["🌱", "Түсіндіру 3"],
+  ["🔬", "Түсіндіру 4"],
+  ["💧", "Түсіндіру 5"],
+  ["🧭", "Түсіндіру 6"],
+  ["▶️", "YouTube"],
+  ["📚", "Конспект"],
+  ["👥", "Қатысушылар"],
+  ["🎤", "Ауызша сұрақ"],
+  ["🧠", "Жеке тест"],
+  ["⚡", "1-ойын"],
+  ["🧩", "2-ойын"],
+  ["🎨", "3-ойын"],
+  ["🏆", "Қорытынды"]
+];
+
+const STORE = "geolab_" + L.id;
+
+function fresh() {
+  return {
+    page: 0,
+    started: null,
+    entered: null,
+    students: STUDENTS.map((name, id) => ({
+      id, name, present: true
+    })),
+    order: mix(STUDENTS.map((_, i) => i)),
+    oral: {},
+    quiz: {},
+    battle: {},
+    logic: {},
+    creative: {},
+    pickOral: null,
+    pickQuiz: null,
+    battleIndex: 0
+  };
+}
+
+function mix(items) {
+  const a = [...items];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function rand(items) {
+  return items.length
+    ? items[Math.floor(Math.random() * items.length)]
+    : null;
+}
+
+function esc(value) {
+  return String(value).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;",
+    '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function own(object, key) {
+  return Object.prototype.hasOwnProperty.call(
+    object, key
+  );
+}
+
+let state = fresh();
+
+try {
+  const saved = JSON.parse(
+    localStorage.getItem(STORE) || "null"
+  );
+  if (saved && saved.students?.length === 24) {
+    state = { ...fresh(), ...saved };
+  }
+} catch (error) {
+  console.warn("Сақталған дерек оқылмады:", error);
+}
+
+for (const key of [
+  "oral", "quiz", "battle", "logic", "creative"
+]) {
+  if (!state[key] || typeof state[key] !== "object") {
+    state[key] = {};
+  }
+}
+
+if (!Array.isArray(state.order) ||
+    state.order.length !== 24) {
+  state.order = mix(STUDENTS.map((_, i) => i));
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(state));
+  } catch (error) {
+    console.warn("Сақтау қатесі:", error);
+  }
+}
+
+function active() {
+  return state.students.filter(s => s.present);
+}
+
+function countTeams() {
+  return Math.min(3, active().length);
+}
+
+function arranged() {
+  const available = new Map(
+    active().map(s => [s.id, s])
+  );
+  return state.order
+    .filter(id => available.has(id))
+    .map(id => available.get(id));
+}
+
+function teamOf(id) {
+  const index = arranged().findIndex(
+    s => s.id === id
+  );
+  return index < 0 || !countTeams()
+    ? -1
+    : index % countTeams();
+}
+
+function members(team) {
+  return arranged().filter(
+    s => teamOf(s.id) === team
+  );
+}
+
+function timeText(seconds) {
+  seconds = Math.max(0, Math.floor(seconds));
+  return String(Math.floor(seconds / 60))
+    .padStart(2, "0") + ":" +
+    String(seconds % 60).padStart(2, "0");
+}
+
+function updateClock() {
+  const now = Date.now();
+  const total = state.started
+    ? (now - state.started) / 1000
+    : 0;
+  const section = state.entered
+    ? (now - state.entered) / 1000
+    : 0;
+  const remain = TIMES[state.page] * 60 - section;
+
+  $("totalClock").textContent = timeText(total);
+  $("sectionClock").textContent =
+    timeText(Math.max(0, remain));
+
+  $("totalClock").style.color =
+    total >= 4800 ? "#ffb8a0" : "#80efbd";
+  $("sectionClock").style.color =
+    remain <= 0 ? "#ff8d98" : "#80efbd";
+}
+
+function go(page) {
+  if (page < 0 || page > 15) return;
+
+  if (!state.started) state.started = Date.now();
+  if (page !== state.page || !state.entered) {
+    state.entered = Date.now();
+  }
+  state.page = page;
+  videoIndex = null;
+
+  save();
+  render();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function button(action, label, cls = "primary", extra = "") {
+  return `<button class="btn ${cls}"
+           data-action="${action}" ${extra}>
+           ${label}
+          </button>`;
+}
+
+function header(title, subtitle) {
+  return `
+    <div class="eyebrow">
+      ${L.code} • ${TIMES[state.page]} МИНУТ
+    </div>
+    <h1>${title}</h1>
+    <p class="lead">${subtitle}</p>
+  `;
+}
+
+function slideView(slide, number) {
+  return `
+    ${header(slide.title, slide.lead)}
+    <div class="two">
+      <div class="poster">
+        <div class="poster-emoji">${slide.icon}</div>
+        <h2>${slide.title}</h2>
+        <p>${slide.lead}</p>
+      </div>
+      <div class="flowchart">
+        ${slide.flow.map((step, i) => `
+          <div class="flowstep">${step}</div>
+          ${i < slide.flow.length - 1
+            ? '<span class="arrow">↓</span>'
+            : ""}
+        `).join("")}
+      </div>
+    </div>
+    <div class="cards">
+      ${slide.points.map((item, i) => `
+        <article class="card">
+          <h3>${i + 1}. Негізгі түсіндірме</h3>
+          <p>${item}</p>
+        </article>
+      `).join("")}
+    </div>
+    <div class="callout">
+      <b>Талдау:</b> ${slide.case}
+    </div>
+    <div class="small-muted">
+      Түсіндіру кезінде оқушы таңдалмайды.
+    </div>
+  `;
+}
+
+let videoIndex = null;
+
+function videoView() {
+  const video = videoIndex === null
+    ? null
+    : L.videos[videoIndex];
+
+  return `
+    ${header("▶️ Қысқа YouTube сабақтары",
+      "Әр видеодан алғашқы екі минут көрсетіледі. Екі видео — 4 минут, талқылау — 1 минут.")}
+    <div class="toolbar">
+      ${L.videos.map((v, i) => `
+        <button class="btn secondary"
+          data-action="video" data-index="${i}">
+          ▶ ${esc(v.title)}
+        </button>
+      `).join("")}
+      ${button("stop-video", "⏹ Тоқтату", "danger")}
+    </div>
+    <div class="video">
+      ${video
+        ? `<iframe
+            title="${esc(video.title)}"
+            src="https://www.youtube-nocookie.com/embed/${video.id}?start=0&end=120&rel=0"
+            allow="encrypted-media; picture-in-picture; fullscreen"
+            allowfullscreen></iframe>`
+        : `<div class="video-placeholder">
+             ▶ Бейнесабақты таңда
+           </div>`}
+    </div>
+    ${video
+      ? `<p><a target="_blank" rel="noopener"
+           href="https://www.youtube.com/watch?v=${video.id}">
+           YouTube-та ашу
+         </a></p>`
+      : ""}
+    <div class="callout">
+      <b>Талқылау:</b> ${L.videoQuestion}
+    </div>
+  `;
+}
+
+function notesView() {
+  const sections = [
+    ...L.slides.map((s, i) => ({
+      title: `${i + 1}. ${s.title}`,
+      text: s.lead + " " + s.points.join(" ")
+    })),
+    ...L.notes.map((n, i) => ({
+      title: `${i + 7}. ${n[0]}`,
+      text: n[1]
+    }))
+  ];
+
+  return `
+    ${header("📚 Толық конспект",
+      "Дәптерге арналған кеңейтілген материал. Алғашқы 10–12 тармақты жазып, қалғанын талдау үшін қолдануға болады.")}
+    <div class="notebook" id="notebook">
+      <h2>${L.title}</h2>
+      ${sections.map(s => `
+        <h3>${s.title}</h3>
+        <p>${s.text}</p>
+      `).join("")}
+    </div>
+    <div class="toolbar">
+      ${button("copy-notes", "📋 Конспектіні көшіру")}
+      ${button("print", "🖨 Басып шығару", "secondary")}
+    </div>
+  `;
+}
+
+function attendanceView() {
+  const yes = active();
+  const no = state.students.filter(s => !s.present);
+
+  return `
+    ${header("👥 Қатысушыларды белгілеу",
+      "Оқушылар тек тапсырмаларға келгенде тіркеледі. Келмегендерді алып тастап, кейін қайтаруға болады.")}
+    <div class="stats">
+      <div><b>${yes.length}</b><small>Қатысады</small></div>
+      <div><b>${no.length}</b><small>Қатыспайды</small></div>
+      <div><b>${countTeams()}</b><small>Команда</small></div>
+    </div>
+    <div class="toolbar">
+      ${button("all-present", "↩ Барлығын қайтару", "secondary")}
+      ${button("shuffle", "🔀 Командаларды араластыру", "secondary")}
+    </div>
+    <h2>Қатысатын оқушылар</h2>
+    <div class="students">
+      ${yes.map(s => `
+        <div class="student">
+          <span>${s.id + 1}.</span>
+          <input data-name="${s.id}" value="${esc(s.name)}"
+                 maxlength="50">
+          <button class="small danger"
+                  data-action="absent" data-id="${s.id}">
+            ✕ Алып тастау
+          </button>
+        </div>
+      `).join("")}
+    </div>
+    <h2>Қатыспайтын оқушылар</h2>
+    <div class="card">
+      ${no.length
+        ? no.map(s => `
+            <div class="absent">
+              <span>${esc(s.name)}</span>
+              <button class="small success"
+                data-action="restore" data-id="${s.id}">
+                ↩ Қайтару
+              </button>
+            </div>
+          `).join("")
+        : "<p>Қатыспайтын оқушы жоқ.</p>"}
+    </div>
+    <h2>Командалардың құрамы</h2>
+    ${teamCards(true)}
+  `;
+}
+
+function scoredResults(type) {
+  return active().map(s => `
+    <div class="result-line">
+      <span>${esc(s.name)}</span>
+      <b>${own(state[type], s.id)
+        ? state[type][s.id].points
+        : "Кезекте"}</b>
+    </div>
+  `).join("");
+}
+
+function usedQuestions(type) {
+  return new Set(
+    Object.values(state[type]).map(r => r.question)
+  );
+}
+
+function pick(type) {
+  const current = type === "oral"
+    ? state.pickOral
+    : state.pickQuiz;
+
+  if (current && !own(state[type], current.id) &&
+      active().some(s => s.id === current.id)) {
+    alert("Алдымен осы оқушыны бағала.");
+    return;
+  }
+
+  const remaining = active().filter(
+    s => !own(state[type], s.id)
+  );
+
+  const used = usedQuestions(type);
+  const questions = L.facts.map((_, i) => i)
+    .filter(i => !used.has(i));
+
+  const selected = remaining.length && questions.length
+    ? { id: rand(remaining).id, question: rand(questions) }
+    : null;
+
+  if (type === "oral") {
+    state.pickOral = selected;
+  } else {
+    state.pickQuiz = selected;
+  }
+
+  save();
+  render();
+}
+
+function optionsFor(question, index) {
+  const items = question.slice(1, 5);
+  const offset = (index * 3 + 1) % 4;
+
+  return {
+    options: items.map(
+      (_, i) => items[(i + offset) % 4]
+    ),
+    correct: (4 - offset) % 4
+  };
+}
+
+function oralView() {
+  const selected = state.pickOral;
+  const s = selected
+    ? active().find(item => item.id === selected.id)
+    : null;
+  const done = s && own(state.oral, s.id);
+  const remaining = active().filter(
+    s => !own(state.oral, s.id)
+  );
+
+  return `
+    ${header("🎤 Рандом ауызша сұрақ",
+      "Оқушы мен сұрақ кездейсоқ таңдалады. Бағаланған оқушы осы кезеңде қайталанбайды.")}
+    <div class="question">
+      <div class="meta">
+        ${active().length - remaining.length} /
+        ${active().length} бағаланды
+      </div>
+      <div class="picked">
+        ${s ? "🎤 " + esc(s.name) : "🎲 Оқушыны таңда"}
+      </div>
+      <h2>${s
+        ? L.facts[selected.question][0]
+        : "«Рандом таңдау» батырмасын бас."}</h2>
+      <div class="toolbar">
+        ${button("pick-oral", "🎲 Рандом таңдау",
+          "primary",
+          (s && !done) || !remaining.length
+            ? "disabled" : "")}
+        ${button("reveal", "👁 Жауапты көрсету",
+          "secondary", !s ? "disabled" : "")}
+      </div>
+      <div id="oralAnswer" class="answer"
+           ${done ? "" : "hidden"}>
+        ${s ? esc(L.facts[selected.question][1]) : ""}
+      </div>
+      <div class="toolbar">
+        ${[3, 2, 1, 0].map(p => `
+          <button class="btn ${p === 3 ? "success" : "secondary"}"
+            data-action="grade" data-points="${p}"
+            ${!s || done ? "disabled" : ""}>
+            ${p} ұпай
+          </button>
+        `).join("")}
+      </div>
+    </div>
+    <h2>Ауызша нәтижелер</h2>
+    <div class="result-grid">${scoredResults("oral")}</div>
+  `;
+}
+
+function quizView() {
+  const selected = state.pickQuiz;
+  const s = selected
+    ? active().find(item => item.id === selected.id)
+    : null;
+  const done = s && own(state.quiz, s.id);
+  const q = s ? L.facts[selected.question] : null;
+  const choices = q
+    ? optionsFor(q, selected.question)
+    : null;
+  const remaining = active().filter(
+    s => !own(state.quiz, s.id)
+  );
+
+  return `
+    ${header("🧠 Кездейсоқ жеке тест",
+      "Әр оқушыға бөлек сұрақ. Дұрыс жауап +2 ұпай.")}
+    <div class="question">
+      <div class="meta">
+        ${active().length - remaining.length} /
+        ${active().length} тапсырды
+      </div>
+      <div class="picked">
+        ${s ? "🧠 " + esc(s.name) : "🎲 Оқушыны таңда"}
+      </div>
+      <h2>${q ? q[0] : "Рандом батырмасын бас."}</h2>
+      <div class="choices">
+        ${choices ? choices.options.map((o, i) => `
+          <label class="choice ${
+            done && i === choices.correct ? "correct" :
+            done && state.quiz[s.id].selected === i
+              ? "wrong" : ""
+          }">
+            <input type="radio" name="quizAnswer"
+              value="${i}"
+              ${done && state.quiz[s.id].selected === i
+                ? "checked" : ""}
+              ${done ? "disabled" : ""}>
+            ${esc(o)}
+          </label>
+        `).join("") : ""}
+      </div>
+      <div class="toolbar">
+        ${button("pick-quiz", "🎲 Рандом таңдау",
+          "primary",
+          (s && !done) || !remaining.length
+            ? "disabled" : "")}
+        ${button("check-quiz", "✅ Тексеру",
+          "success", !s || done ? "disabled" : "")}
+      </div>
+      ${done
+        ? `<div class="answer">
+             ${state.quiz[s.id].correct
+               ? "✅ Дұрыс! +2 ұпай."
+               : "❌ Қате."}
+             Дұрыс жауап: ${esc(q[1])}
+           </div>`
+        : ""}
+    </div>
+    <h2>Тест нәтижелері</h2>
+    <div class="result-grid">${scoredResults("quiz")}</div>
+  `;
+}
+
+function battleLength() {
+  return countTeams() * 3;
+}
+
+function battleView() {
+  const length = battleLength();
+
+  if (!length) {
+    return header("⚡ Бірінші ойын",
+      "Алдымен қатысушыларды белгіле.");
+  }
+
+  const index = Math.min(
+    state.battleIndex,
+    length - 1
+  );
+  const q = L.battle[index];
+  const c = optionsFor(q, index);
+  const done = own(state.battle, index);
+  const result = state.battle[index];
+  const team = index % countTeams();
+
+  return `
+    ${header("⚡ 1-ойын — Экологиялық сарапшы",
+      "9 күрделі жағдаят. Дұрыс жауап үшін 3 ұпай.")}
+    ${teamCards(false)}
+    <div class="question">
+      <div class="meta">
+        Жағдаят ${index + 1}/${length}
+        • ${TEAMS[team]}
+      </div>
+      <div class="bar">
+        <div style="width:${(index + 1) / length * 100}%"></div>
+      </div>
+      <h2>${q[0]}</h2>
+      <div class="choices">
+        ${c.options.map((o, i) => `
+          <label class="choice ${
+            done && i === c.correct ? "correct" :
+            done && result.selected === i ? "wrong" : ""
+          }">
+            <input type="radio" name="battleAnswer"
+              value="${i}"
+              ${done && result.selected === i ? "checked" : ""}
+              ${done ? "disabled" : ""}>
+            ${esc(o)}
+          </label>
+        `).join("")}
+      </div>
+      <div class="toolbar">
+        ${button("battle-check", "✅ Тексеру", "success",
+          done ? "disabled" : "")}
+        ${button("battle-next",
+          index === length - 1
+            ? "2-ойынға өту →"
+            : "Келесі жағдаят →")}
+      </div>
+      ${done
+        ? `<div class="answer">
+             ${result.correct ? "✅ Дұрыс!" : "❌ Қате."}
+             ${esc(q[5] || q[1])}
+           </div>`
+        : ""}
+    </div>
+  `;
+}
+
+function logicView() {
+  return `
+    ${header("🧩 2-ойын — Ғылыми детектив",
+      "Әр командаға төрт тұжырым. Дұрысын және қатесін дәлелдеу керек.")}
+    ${teamCards(false)}
+    ${Array.from({ length: countTeams() },
+      (_, team) => {
+        const questions = L.logic.slice(
+          team * 4, team * 4 + 4
+        );
+        const result = state.logic[team];
+        return `
+          <div class="card game-card">
+            <h2>${TEAMS[team]}</h2>
+            ${questions.map((q, i) => `
+              <div class="statement">
+                <p>${i + 1}. ${esc(q[0])}</p>
+                <select data-logic="${team}-${i}"
+                  ${result ? "disabled" : ""}>
+                  <option value="">Жауап таңда</option>
+                  <option value="true"
+                    ${result?.answers[i] === true
+                      ? "selected" : ""}>✅ Дұрыс</option>
+                  <option value="false"
+                    ${result?.answers[i] === false
+                      ? "selected" : ""}>❌ Қате</option>
+                </select>
+              </div>
+            `).join("")}
+            ${button("logic-check", "🧩 Жауапты тексеру",
+              "primary",
+              `data-team="${team}"
+               ${result ? "disabled" : ""}`)}
+            ${result
+              ? `<div class="answer">
+                 ${result.points}/4 ұпай.
+                 ${questions.map((q, i) =>
+                   `<p>${i + 1}. ${esc(q[2])}</p>`
+                 ).join("")}
+               </div>`
+              : ""}
+          </div>
+        `;
+      }
+    ).join("")}
+  `;
+}
+
+function creativeView() {
+  return `
+    ${header("🎨 3-ойын — Жобаны қорғау",
+      "Үш командаға үш түрлі шығармашылық тапсырма.")}
+    ${teamCards(false)}
+    ${L.creative.slice(0, countTeams())
+      .map((task, team) => `
+        <div class="card game-card">
+          <h2>${TEAMS[team]}</h2>
+          <h3>${esc(task[0])}</h3>
+          <p>${esc(task[1])}</p>
+          <p><b>Бағалау:</b> ғылыми дәлдік — 2,
+             сызба — 2, қорғау — 1 ұпай.</p>
+          <select id="creative-${team}">
+            <option value="">Ұпай таңда</option>
+            ${[0,1,2,3,4,5].map(n => `
+              <option value="${n}"
+                ${state.creative[team] === n
+                  ? "selected" : ""}>
+                ${n} ұпай
+              </option>
+            `).join("")}
+          </select>
+          ${button("creative-save", "🏅 Ұпайды сақтау",
+            "success", `data-team="${team}"`)}
+        </div>
+      `).join("")}
+  `;
+}
+
+function personalPoints(id) {
+  return (state.oral[id]?.points || 0) +
+         (state.quiz[id]?.points || 0);
+}
+
+function gamePoints(team) {
+  let total = 0;
+
+  for (let i = 0; i < battleLength(); i++) {
+    if (i % countTeams() === team) {
+      total += state.battle[i]?.points || 0;
+    }
+  }
+
+  total += state.logic[team]?.points || 0;
+  total += state.creative[team] || 0;
+
+  return total;
+}
+
+function teamPoints(team) {
+  const list = members(team);
+  if (!list.length) return 0;
+
+  const sum = list.reduce(
+    (total, s) => total + personalPoints(s.id),
+    0
+  );
+
+  return Math.round(sum / list.length * 2) +
+         gamePoints(team);
+}
+
+function teamCards(withMembers) {
+  return `
+    <div class="team-grid">
+      ${Array.from({ length: countTeams() },
+        (_, team) => `
+          <div class="team-card">
+            <h3>${TEAMS[team]}</h3>
+            <div class="team-score">
+              ${teamPoints(team)} ұпай
+            </div>
+            <p>${members(team).length} оқушы</p>
+            ${withMembers
+              ? `<ol>${members(team).map(s =>
+                  `<li>${esc(s.name)}</li>`
+                 ).join("")}</ol>`
+              : ""}
+          </div>
+        `
+      ).join("")}
+    </div>
+  `;
+}
+
+function summaryView() {
+  const scores = Array.from(
+    { length: countTeams() },
+    (_, i) => teamPoints(i)
+  );
+
+  const highest = scores.length
+    ? Math.max(...scores)
+    : 0;
+
+  const leaders = scores.map(
+    (score, index) => ({ score, index })
+  ).filter(x => x.score === highest);
+
+  const assessed = Object.keys(state.oral).length ||
+    Object.keys(state.quiz).length ||
+    Object.keys(state.battle).length ||
+    Object.keys(state.logic).length ||
+    Object.keys(state.creative).length;
+
+  return `
+    ${header("🏆 Сабақ қорытындысы",
+      "Командалық ұпайлар мен жеке нәтижелер.")}
+    <div class="winner">
+      ${!active().length
+        ? "Қатысушылар жоқ"
+        : !assessed
+          ? "Нәтижелер тапсырмадан кейін шығады"
+          : leaders.length === 1
+            ? `🏆 Әзірге көшбасшы:
+               ${TEAMS[leaders[0].index]}
+               — ${highest} ұпай`
+            : `🤝 Ұпай тең:
+               ${leaders.map(x => TEAMS[x.index])
+                 .join(", ")}
+               — ${highest} ұпай`}
+    </div>
+    ${teamCards(false)}
+    <h2>Жеке нәтижелер</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Оқушы</th>
+            <th>Команда</th>
+            <th>Ауызша</th>
+            <th>Тест</th>
+            <th>Жалпы</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${active().map(s => `
+            <tr>
+              <td>${esc(s.name)}</td>
+              <td>${TEAMS[teamOf(s.id)]}</td>
+              <td>${state.oral[s.id]?.points ?? "—"}</td>
+              <td>${state.quiz[s.id]?.points ?? "—"}</td>
+              <td>${personalPoints(s.id)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <b>Қорытынды:</b> ${L.conclusion}
+    </div>
+    <div class="toolbar">
+      ${button("print", "🖨 Басып шығару", "secondary")}
+      ${button("reset", "🔄 Жаңа сабақ", "danger")}
+    </div>
+    <p class="signature">MADE BY DARKHAN</p>
+  `;
+}
+
+function render() {
+  document.title = `${L.code} | ${L.title}`;
+  document.documentElement.style.setProperty(
+    "--accent", L.accent
+  );
+
+  $("brand").textContent = `GEO LAB ${L.code}`;
+  $("sideTitle").textContent = L.code;
+
+  $("nav").innerHTML = NAV.map(([icon, label], i) => `
+    <button class="nav-btn ${state.page === i
+      ? "active" : ""}" data-action="go" data-page="${i}">
+      <span class="nav-icon">${icon}</span>
+      <span class="nav-label">${label}</span>
+    </button>
+  `).join("");
+
+  const pages = [
+    () => `
+      <div class="hero">
+        <div class="eyebrow">
+          ГЕОГРАФИЯ • 1-КУРС • ${L.code}
+        </div>
+        <h1>${L.icon} ${L.title}</h1>
+        <p>${L.intro}</p>
+        <div class="stats">
+          <div><b>80</b><small>минут</small></div>
+          <div><b>6</b><small>түсіндірме</small></div>
+          <div><b>24</b><small>оқушыға дейін</small></div>
+          <div><b>3</b><small>командалық ойын</small></div>
+        </div>
+        ${button("start", "Сабақты бастау →")}
+      </div>
+      <h2>Сабақ мақсаттары</h2>
+      <div class="cards">
+        ${L.goals.map(g => `
+          <div class="card"><h3>🎯 Мақсат</h3>
+          <p>${g}</p></div>
+        `).join("")}
+      </div>`,
+    ...L.slides.map((s, i) => () => slideView(s, i)),
+    videoView,
+    notesView,
+    attendanceView,
+    oralView,
+    quizView,
+    battleView,
+    logicView,
+    creativeView,
+    summaryView
+  ];
+
+  $("screen").innerHTML = pages[state.page]();
+
+  $("pageInfo").textContent =
+    `${state.page + 1} / 16`;
+
+  $("prevBtn").disabled = state.page === 0;
+  $("nextBtn").disabled = state.page === 15;
+
+  $("sideScores").innerHTML = state.page < 9
+    ? ""
+    : Array.from({ length: countTeams() },
+        (_, team) => `
+          <div class="mini-score">
+            <span>${TEAMS[team]}</span>
+            <b>${teamPoints(team)}</b>
+          </div>
+        `).join("");
+
+  updateClock();
+}
+
+// ===============================================
+// БАТЫРМАЛАРДЫҢ БАРЛЫҒЫНЫҢ ЖҰМЫСЫ
+// ===============================================
+
+document.addEventListener("click", async event => {
+  const btn = event.target.closest("[data-action]");
+  if (!btn) return;
+
+  const action = btn.dataset.action;
+  const id = Number(btn.dataset.id);
+  const team = Number(btn.dataset.team);
+
+  if (action === "start") return go(1);
+  if (action === "prev") return go(state.page - 1);
+  if (action === "next") return go(state.page + 1);
+  if (action === "go") {
+    return go(Number(btn.dataset.page));
+  }
+
+  if (action === "video") {
+    videoIndex = Number(btn.dataset.index);
+    return render();
+  }
+
+  if (action === "stop-video") {
+    videoIndex = null;
+    return render();
+  }
+
+  if (action === "print") {
+    return window.print();
+  }
+
+  if (action === "copy-notes") {
+    const notes = $("notebook")?.innerText || "";
+    try {
+      await navigator.clipboard.writeText(notes);
+      alert("✅ Конспект көшірілді.");
+    } catch (error) {
+      alert("Мәтінді қолмен белгілеп, Ctrl+C бас.");
+    }
+    return;
+  }
+
+  if (action === "reset") {
+    if (!confirm("Барлық нәтижені тазалаймыз ба?")) {
+      return;
+    }
+    state = fresh();
+    videoIndex = null;
+    save();
+    return go(0);
+  }
+
+  if (action === "all-present" ||
+      action === "absent" ||
+      action === "restore" ||
+      action === "shuffle") {
+
+    const gamesStarted =
+      Object.keys(state.battle).length ||
+      Object.keys(state.logic).length ||
+      Object.keys(state.creative).length;
+
+    if (gamesStarted && !confirm(
+      "Команда құрамы өзгерсе, командалық " +
+      "ойын ұпайлары тазаланады. Жалғастыру?"
+    )) return;
+
+    if (gamesStarted) {
+      state.battle = {};
+      state.logic = {};
+      state.creative = {};
+      state.battleIndex = 0;
+    }
+
+    if (action === "all-present") {
+      state.students.forEach(s => s.present = true);
+    }
+
+    if (action === "absent") {
+      state.students[id].present = false;
+    }
+
+    if (action === "restore") {
+      state.students[id].present = true;
+    }
+
+    if (action === "shuffle") {
+      state.order = mix(state.order);
+    }
+
+    if (state.pickOral &&
+        !active().some(s => s.id === state.pickOral.id)) {
+      state.pickOral = null;
+    }
+
+    if (state.pickQuiz &&
+        !active().some(s => s.id === state.pickQuiz.id)) {
+      state.pickQuiz = null;
+    }
+
+    save();
+    return render();
+  }
+
+  if (action === "pick-oral") {
+    return pick("oral");
+  }
+
+  if (action === "reveal") {
+    const answer = $("oralAnswer");
+    if (answer) answer.hidden = !answer.hidden;
+    return;
+  }
+
+  if (action === "grade") {
+    const selected = state.pickOral;
+    if (!selected ||
+        own(state.oral, selected.id)) return;
+
+    state.oral[selected.id] = {
+      question: selected.question,
+      points: Number(btn.dataset.points)
+    };
+    save();
+    return render();
+  }
+
+  if (action === "pick-quiz") {
+    return pick("quiz");
+  }
+
+  if (action === "check-quiz") {
+    const selected = state.pickQuiz;
+    if (!selected ||
+        own(state.quiz, selected.id)) return;
+
+    const radio = document.querySelector(
+      'input[name="quizAnswer"]:checked'
+    );
+    if (!radio) {
+      alert("Жауапты таңда.");
+      return;
+    }
+
+    const correct = optionsFor(
+      L.facts[selected.question],
+      selected.question
+    ).correct;
+
+    const chosen = Number(radio.value);
+
+    state.quiz[selected.id] = {
+      question: selected.question,
+      selected: chosen,
+      correct: chosen === correct,
+      points: chosen === correct ? 2 : 0
+    };
+    save();
+    return render();
+  }
+
+  if (action === "battle-check") {
+    const index = state.battleIndex;
+    if (!countTeams() ||
+        own(state.battle, index)) return;
+
+    const radio = document.querySelector(
+      'input[name="battleAnswer"]:checked'
+    );
+    if (!radio) {
+      alert("Жауапты таңда.");
+      return;
+    }
+
+    const correct = optionsFor(
+      L.battle[index], index
+    ).correct;
+
+    const chosen = Number(radio.value);
+
+    state.battle[index] = {
+      selected: chosen,
+      correct: chosen === correct,
+      points: chosen === correct ? 3 : 0
+    };
+    save();
+    return render();
+  }
+
+  if (action === "battle-next") {
+    if (state.battleIndex >= battleLength() - 1) {
+      return go(13);
+    }
+    state.battleIndex++;
+    save();
+    return render();
+  }
+
+  if (action === "logic-check") {
+    if (own(state.logic, team)) return;
+
+    const questions = L.logic.slice(
+      team * 4,
+      team * 4 + 4
+    );
+
+    const fields = questions.map((_, i) =>
+      document.querySelector(
+        `[data-logic="${team}-${i}"]`
+      )
+    );
+
+    if (fields.some(f => !f.value)) {
+      alert("Төрт жауапты түгел таңда.");
+      return;
+    }
+
+    const answers = fields.map(
+      f => f.value === "true"
+    );
+
+    const points = answers.reduce(
+      (sum, a, i) =>
+        sum + Number(a === questions[i][1]), 0
+    );
+
+    state.logic[team] = { answers, points };
+    save();
+    return render();
+  }
+
+  if (action === "creative-save") {
+    const value = $("creative-" + team).value;
+    if (value === "") {
+      alert("Алдымен ұпай таңда.");
+      return;
+    }
+    state.creative[team] = Number(value);
+    save();
+    return render();
+  }
+});
+
+document.addEventListener("change", event => {
+  const input = event.target.closest("[data-name]");
+  if (!input) return;
+
+  const id = Number(input.dataset.name);
+  const newName = input.value.trim();
+
+  if (newName) {
+    state.students[id].name = newName;
+    save();
+    render();
+  } else {
+    input.value = state.students[id].name;
+  }
+});
+
+$("fullscreen").addEventListener(
+  "click",
+  async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement
+          .requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (error) {
+      alert("Толық экран ашылмады.");
+    }
+  }
+);
+
+$("nav").addEventListener("click", event => {
+  const button = event.target.closest(".nav-btn");
+  if (button) go(Number(button.dataset.page));
+});
+
+setInterval(updateClock, 1000);
+render();
+</script>
+
+</body>
+</html>
